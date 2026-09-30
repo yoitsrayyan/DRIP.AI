@@ -107,9 +107,9 @@ const PROVIDERS = [
 console.log('المزودون الاحتياطيون المفعّلون:', PROVIDERS.map(p => p.name).join(', ') || 'لا يوجد (Gemini فقط)');
 
 const MODEL_PREFERENCE = [
-    /llama-3\.3-70b/i, /llama-4-maverick/i, /llama-4-scout/i, /llama-3\.1-70b/i,
-    /mistral-(small|medium|large)/i, /gpt-oss-120b/i, /qwen.*32b/i, /gpt-oss-20b/i, /llama-3\.1-8b/i
+    /mistral.*free/i, /gemma.*free/i, /qwen.*free/i
 ];
+
 const MODEL_EXCLUDE = /whisper|guard|tts|embed|orpheus|playai|safeguard|moderation|vision|ocr|transcribe|rerank|compound/i;
 
 // لو اسم النموذج انحذف عند المزود، نجيب قائمة النماذج ونختار أنسب واحد
