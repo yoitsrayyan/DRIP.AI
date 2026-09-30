@@ -56,8 +56,8 @@ const BUSY_REPLIES = [
 ];
 
 // --- 4. مزودو الذكاء الاصطناعي ---
-// Gemini (تقدر تضيف أكثر من مفتاح: GEMINI_API_KEY, GEMINI_API_KEY_2 ... _5)
-const GEMINI_KEYS = [process.env.GEMINI_API_KEY, ...[2, 3, 4, 5, 6, 7].map(i => process.env[`GEMINI_API_KEY_${i}`])].filter(Boolean);
+// Gemini (تقدر تضيف أكثر من مفتاح: GEMINI_API_KEY, GEMINI_API_KEY_2 ... _8)
+const GEMINI_KEYS = [process.env.GEMINI_API_KEY, ...[2, 3, 4, 5, 6, 7, 8].map(i => process.env[`GEMINI_API_KEY_${i}`])].filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
 const geminiClients = GEMINI_KEYS.map(key => new GoogleGenAI({ apiKey: key }));
