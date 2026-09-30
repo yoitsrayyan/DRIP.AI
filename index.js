@@ -145,7 +145,7 @@ async function askOpenAICompat(provider, prompt, allowDiscovery = true) {
         signal: AbortSignal.timeout(60000)
     });
     if (!res.ok) {
-        if (res.status === 404 && allowDiscovery) {
+        if (false && allowDiscovery) {
             const newModel = await discoverModel(provider);
             if (newModel && newModel !== provider.model) {
                 console.log(`🔄 ${provider.name}: النموذج ${provider.model} غير متاح، نستخدم ${newModel}`);
