@@ -245,7 +245,7 @@ const busyChannels = new Set();
 const lastAutoReply = new Map();
 
 client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
+    if (message.author.id === client.user.id || !message.guild) return;
 
     const text = message.cleanContent.trim();
     if (!text) return;
