@@ -100,7 +100,7 @@ async function askGemini(prompt) {
 
 // مزودون احتياطيون مجانيون (كلهم بصيغة OpenAI)، يشتغل اللي مفتاحه موجود
 const PROVIDERS = [
-    { name: 'Groq', key: process.env.GROQ_API_KEY, url: 'https://api.groq.com/openai/v1/chat/completions', model: 'gemma2-9b-it' },
+    { name: 'Groq', key: process.env.GROQ_API_KEY, url: 'https://api.groq.com/openai/v1/chat/completions', model: process.env.GROQ_MODEL || 'mixtral-8x7b-32768' },
     { name: 'HuggingFace', key: process.env.HF_TOKEN, url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct/v1/chat/completions', model: 'Qwen/Qwen2.5-7B-Instruct' },
     { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
     { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
