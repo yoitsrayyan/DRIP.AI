@@ -101,8 +101,6 @@ async function askGemini(prompt) {
 // مزودون احتياطيون مجانيون (كلهم بصيغة OpenAI)، يشتغل اللي مفتاحه موجود
 const PROVIDERS = [
     { name: 'Groq', key: process.env.GROQ_API_KEY, url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
-    { name: 'HuggingFace', key: process.env.HF_TOKEN, url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct/v1/chat/completions', model: 'Qwen/Qwen2.5-7B-Instruct' },
-    { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
     { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
     { name: 'Cerebras', key: process.env.CEREBRAS_API_KEY, url: 'https://api.cerebras.ai/v1/chat/completions', model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b' },
     { name: 'OpenRouter', key: process.env.OPENROUTER_API_KEY, url: 'https://openrouter.ai/api/v1/chat/completions', model: 'qwen/qwen-2.5-72b-instruct:free' }
