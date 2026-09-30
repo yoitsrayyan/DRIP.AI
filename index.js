@@ -143,7 +143,7 @@ async function askOpenAICompat(provider, prompt, allowDiscovery = true) {
             temperature: 0.95,
             max_tokens: 300
         }),
-        signal: AbortSignal.timeout(20000)
+        signal: AbortSignal.timeout(60000)
     });
     if (!res.ok) {
         if (res.status === 404 && allowDiscovery) {
