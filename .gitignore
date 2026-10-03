@@ -1,2 +1,18 @@
+# مفاتيح وإعدادات سرية
 .env
+.env.*
+!.env.example
+config.json
+
+# مكتبات
 node_modules/
+
+# لوغات
+*.log
+npm-debug.log*
+
+# ملفات النظام والمحررات
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
