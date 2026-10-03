@@ -11,24 +11,26 @@ app.listen(port, () => console.log(`Server is running on port ${port}`));
 // --- 2. الإعدادات (كلها من متغيرات البيئة) ---
 const TOKEN = process.env.DISCORD_TOKEN || '';
 
-// أسماء لو انكتبت بالرسالة يرد عليها البوت حتى بدون منشن (مفصولة بفاصلة)
-const NAME_TRIGGERS = (process.env.NAME_TRIGGERS || 'drip,دريب')
-    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-// يطابق الاسم كلمة كاملة (عشان "dripking" ما يفعّل البوت بالغلط)
-const NAME_RE = new RegExp(`(^|[^\\p{L}\\p{N}])(${NAME_TRIGGERS.map(escapeRe).join('|')})($|[^\\p{L}\\p{N}])`, 'iu');
-
 // الرومات اللي يسولف فيها البوت مع الكل بدون منشن (IDs مفصولة بفاصلة)
 const CHAT_CHANNEL_IDS = new Set(
     (process.env.CHAT_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
 const AUTOREPLY_CHANCE = parseFloat(process.env.AUTOREPLY_CHANCE || '0.7');          // احتمال الرد على رسالة عادية
 const AUTOREPLY_COOLDOWN_MS = parseInt(process.env.AUTOREPLY_COOLDOWN_SEC || '4', 10) * 1000; // أقل فاصل بين ردين تلقائيين بنفس الروم
-const AUTOREPLY_DAILY_MAX = parseInt(process.env.AUTOREPLY_DAILY_MAX || '300', 10);   // ميزانية يومية للردود التلقائية (المنشن ما يتأثر فيها)
-const HISTORY_LIMIT = parseInt(process.env.HISTORY_LIMIT || '14', 10);                // كم رسالة يقرأ قبل ما يرد
+const AUTOREPLY_DAILY_MAX = parseInt(process.env.AUTOREPLY_DAILY_MAX || '500', 10);   // ميزانية يومية للردود التلقائية (المنشن ما يتأثر فيها)
+const HISTORY_LIMIT = parseInt(process.env.HISTORY_LIMIT || '14', 10);                // كم رسالة يقرأ قبل ما يرد 
+
+// الرومات اللي البوت يتجاهلها تماماً وما يرد فيها أبداً (IDs مفصولة بفاصلة)
+const IGNORED_CHANNEL_IDS = new Set(
+    (process.env.IGNORED_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
+);
+
+const NAME_TRIGGERS = (process.env.NAME_TRIGGERS || 'دووم,doom').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const NAME_RE = new RegExp(`(^|[^\\p{L}\\p{N}])(${NAME_TRIGGERS.map(escapeRe).join('|')})($|[^\\p{L}\\p{N}])`, 'iu');
 
 // --- 3. شخصية البوت (تقدر تغيرها من متغير BOT_PERSONA بدون ما تلمس الكود) ---
-const BOT_PERSONA = process.env.BOT_PERSONA || `أنت عضو عادي في سيرفر ديسكورد اسمك "Drip"، شاب عربي عمره حوالي 20 سنة، قاعد مع الشلة تسولف وتمزح وترد على الكل كأنك واحد منهم مو بوت.
+const BOT_PERSONA = process.env.BOT_PERSONA || `أنت عضو عادي في سيرفر ديسكورد اسمك "دووم"، شاب عربي عمره حوالي 20 سنة، قاعد مع الشلة تسولف وتمزح وترد على الكل كأنك واحد منهم مو بوت.
 
 شخصيتك:
 - سريع بديهة وخفيف دم وأسلوبك فيه قصف جبهات ودعابة ساخرة بين الأصحاب. لو أحد قصفك رد عليه بردّ أذكى وأخف منه، ولو أحد تحداك أو استفزك أو قال إنك مجبور ترد، لا تنقهر ولا تعصب ولا تدافع كثير، رد بثقة وسخرية لطيفة وقلب الكلام عليه.
@@ -39,6 +41,7 @@ const BOT_PERSONA = process.env.BOT_PERSONA || `أنت عضو عادي في سي
 - الإيموجي نادر جداً (مرة كل كذا رد بالكثير)، والتعبير يجي من الكلام نفسه.
 - كل رد لازم يكون مختلف عن اللي قبله بالافتتاحية والأسلوب، لا تكرر نفس الصيغة ولا نفس القفشة.
 - لا قوائم ولا عناوين ولا نقاط ولا نص عريض. ولا تبدأ بـ "بالتأكيد" أو "بالطبع" أو "أهلاً بك". ولا تعرض مساعدة ولا تقول "كيف أقدر أساعدك"، أنت صاحبهم مو مساعد.
+- لو العضو سأل عن شرح اشي او عن معلومة بتحن عليه شوي وبتجاوبه.
 
 حدودك:
 - القصف على الكلام والمواقف والتصرفات فقط. لا تمس الأهل ولا الدين ولا العرق ولا الشكل ولا شي جارح فعلاً. لو المزح انقلب جد أو حد بان عليه زعل حقيقي، هدّي اللعب وخفف.
@@ -207,7 +210,7 @@ function takeBudget() {
 function cleanReply(text) {
     return (text || '')
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .replace(/^\s*(drip|دريب)\s*[:：]\s*/i, '')
+        .replace(/^\s*(دووم|doom)\s*[:：]\s*/i, '')
         .replace(/^["«“]+|["»”]+$/g, '')
         .trim();
 }
@@ -248,6 +251,7 @@ const lastAutoReply = new Map();
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
+    if (IGNORED_CHANNEL_IDS.has(message.channel.id)) return;
     const text = message.cleanContent.trim();
     if (!text) return;
 
