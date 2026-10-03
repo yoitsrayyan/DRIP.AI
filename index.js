@@ -15,9 +15,9 @@ const TOKEN = process.env.DISCORD_TOKEN || '';
 const CHAT_CHANNEL_IDS = new Set(
     (process.env.CHAT_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
-const AUTOREPLY_CHANCE = parseFloat(process.env.AUTOREPLY_CHANCE || '0.7');          // احتمال الرد على رسالة عادية
+const AUTOREPLY_CHANCE = parseFloat(process.env.AUTOREPLY_CHANCE || '0.4');          // احتمال الرد على رسالة عادية
 const AUTOREPLY_COOLDOWN_MS = parseInt(process.env.AUTOREPLY_COOLDOWN_SEC || '4', 10) * 1000; // أقل فاصل بين ردين تلقائيين بنفس الروم
-const AUTOREPLY_DAILY_MAX = parseInt(process.env.AUTOREPLY_DAILY_MAX || '500', 10);   // ميزانية يومية للردود التلقائية (المنشن ما يتأثر فيها)
+const AUTOREPLY_DAILY_MAX = parseInt(process.env.AUTOREPLY_DAILY_MAX || '250', 10);   // ميزانية يومية للردود التلقائية (المنشن ما يتأثر فيها)
 const HISTORY_LIMIT = parseInt(process.env.HISTORY_LIMIT || '14', 10);                // كم رسالة يقرأ قبل ما يرد 
 
 // الرومات اللي البوت يتجاهلها تماماً وما يرد فيها أبداً (IDs مفصولة بفاصلة)
@@ -63,9 +63,34 @@ const BUSY_REPLIES = [
 const GEMINI_KEYS = [process.env.GEMINI_API_KEY, ...[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].map(i => process.env[`GEMINI_API_KEY_${i}`])].filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
+// الحصة اليومية في Gemini لكل (مشروع + موديل)، فكل موديل إضافي = حصة إضافية
+const GEMINI_MODELS = [...new Set([
+    GEMINI_MODEL,
+    GEMINI_FALLBACK_MODEL,
+    ...(process.env.GEMINI_EXTRA_MODELS || '').split(',').map(s => s.trim()).filter(Boolean)
+])];
 const geminiClients = GEMINI_KEYS.map(key => new GoogleGenAI({ apiKey: key }));
 let geminiKeyCursor = 0;
 console.log(`مفاتيح Gemini المفعّلة: ${GEMINI_KEYS.length}`);
+
+// ذاكرة الحصص: أي (مفتاح + موديل) ياخد 429 نوقف استخدامه لحد ما ينتهي وقت الانتظار
+const geminiCooldown = new Map(); // "رقم المفتاح|الموديل" -> وقت انتهاء الإيقاف (ms)
+const GEMINI_MAX_TRIES = parseInt(process.env.GEMINI_MAX_TRIES || '6', 10); // أقصى محاولات فاشلة بالرد الواحد
+
+function geminiCooldownMs(e) {
+    const msg = String(e?.message || '');
+    const st = e?.status;
+    if (st === 429) {
+        const m = msg.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+        if (m) return Math.ceil(parseFloat(m[1]) * 1000) + 5000;
+        return /PerDay/i.test(msg) ? 60 * 60 * 1000 : 60 * 1000;
+    }
+    // مفتاح غير صالح أو ممنوع، أو موديل غير موجود: ما يفيد نعيد المحاولة قريب
+    if ((st === 400 || st === 401 || st === 403) && /api key|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) return 6 * 60 * 60 * 1000;
+    if (st === 404) return 6 * 60 * 60 * 1000;
+    if (st >= 500) return 15 * 1000;
+    return 0; // خطأ بسبب الطلب نفسه، مو بسبب المفتاح
+}
 
 async function askGemini(prompt) {
     if (geminiClients.length === 0) {
@@ -73,11 +98,15 @@ async function askGemini(prompt) {
         e.status = 0;
         throw e;
     }
-    const models = [GEMINI_MODEL, GEMINI_FALLBACK_MODEL];
     let lastError;
-    for (let k = 0; k < geminiClients.length; k++) {
+    let tries = 0;
+    for (let k = 0; k < geminiClients.length && tries < GEMINI_MAX_TRIES; k++) {
         const idx = (geminiKeyCursor + k) % geminiClients.length;
-        for (const model of models) {
+        for (const model of GEMINI_MODELS) {
+            if (tries >= GEMINI_MAX_TRIES) break;
+            const cdKey = `${idx}|${model}`;
+            if ((geminiCooldown.get(cdKey) || 0) > Date.now()) continue; // حصته خلصت، تجاهله
+            tries++;
             for (let attempt = 0; attempt < 2; attempt++) {
                 try {
                     const result = await geminiClients[idx].models.generateContent({
@@ -93,46 +122,35 @@ async function askGemini(prompt) {
                         await new Promise(r => setTimeout(r, 1500));
                         continue;
                     }
-                    break; // خلصت الحصة أو خطأ دائم: جرب الموديل/المفتاح التالي
+                    const ms = geminiCooldownMs(e);
+                    if (ms) {
+                        geminiCooldown.set(cdKey, Date.now() + ms);
+                        console.warn(`⏳ Gemini مفتاح #${idx + 1} / ${model}: إيقاف ${Math.max(1, Math.round(ms / 60000))} دقيقة (خطأ ${e?.status})`);
+                    }
+                    break;
                 }
             }
         }
+    }
+    if (!lastError) {
+        const e = new Error('كل مفاتيح وموديلات Gemini بفترة انتظار (الحصة خلصت)');
+        e.coolingDown = true;
+        throw e;
     }
     throw lastError;
 }
 
 // مزودون احتياطيون مجانيون (كلهم بصيغة OpenAI)، يشتغل اللي مفتاحه موجود
 const PROVIDERS = [
-    { name: 'OpenRouter', key: process.env.OPENROUTER_API_KEY, url: 'https://openrouter.ai/api/v1/chat/completions', model: 'qwen/qwen-2.5-72b-instruct' },
-    { name: 'Groq', key: process.env.GROQ_API_KEY, url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
-    { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
+    { name: 'Groq', key: process.env.GROQ_API_KEY, url: 'https://api.groq.com/openai/v1/chat/completions', model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' },
     { name: 'Cerebras', key: process.env.CEREBRAS_API_KEY, url: 'https://api.cerebras.ai/v1/chat/completions', model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b' },
+    { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
+    // OpenRouter آخر واحد: موديل مجاني (:free) عشان ما ياخد من رصيدك. تقدر تغيره من OPENROUTER_MODEL
+    { name: 'OpenRouter', key: process.env.OPENROUTER_API_KEY, url: 'https://openrouter.ai/api/v1/chat/completions', model: process.env.OPENROUTER_MODEL || 'qwen/qwen-2.5-72b-instruct:free' },
 ].filter(p => p.key);
 console.log('المزودون الاحتياطيون المفعّلون:', PROVIDERS.map(p => p.name).join(', ') || 'لا يوجد (Gemini فقط)');
 
-const MODEL_PREFERENCE = [
-    /mistral.*free/i, /gemma.*free/i, /qwen.*free/i
-];
-
-const MODEL_EXCLUDE = /whisper|guard|tts|embed|orpheus|playai|safeguard|moderation|vision|ocr|transcribe|rerank|compound/i;
-
-// لو اسم النموذج انحذف عند المزود، نجيب قائمة النماذج ونختار أنسب واحد
-async function discoverModel(provider) {
-    const res = await fetch(provider.url.replace('/chat/completions', '/models'), {
-        headers: { 'Authorization': `Bearer ${provider.key}` },
-        signal: AbortSignal.timeout(15000)
-    });
-    if (!res.ok) throw new Error(`تعذر جلب قائمة نماذج ${provider.name}: ${res.status}`);
-    const data = await res.json();
-    const ids = (data.data || []).map(m => m.id).filter(id => id && !MODEL_EXCLUDE.test(id));
-    for (const pattern of MODEL_PREFERENCE) {
-        const found = ids.find(id => pattern.test(id));
-        if (found) return found;
-    }
-    return ids[0] || null;
-}
-
-async function askOpenAICompat(provider, prompt, allowDiscovery = true) {
+async function askOpenAICompat(provider, prompt) {
     const res = await fetch(provider.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${provider.key}` },
@@ -143,19 +161,11 @@ async function askOpenAICompat(provider, prompt, allowDiscovery = true) {
                 { role: 'user', content: prompt }
             ],
             temperature: 0.95,
-            max_tokens: 300
+            max_tokens: 500
         }),
-        signal: AbortSignal.timeout(60000)
+        signal: AbortSignal.timeout(25000)
     });
     if (!res.ok) {
-        if (false && allowDiscovery) {
-            const newModel = await discoverModel(provider);
-            if (newModel && newModel !== provider.model) {
-                console.log(`🔄 ${provider.name}: النموذج ${provider.model} غير متاح، نستخدم ${newModel}`);
-                provider.model = newModel;
-                return askOpenAICompat(provider, prompt, false);
-            }
-        }
         const err = new Error(`${provider.name} ${res.status}: ${(await res.text()).slice(0, 300)}`);
         err.status = res.status;
         throw err;
@@ -167,18 +177,21 @@ async function askOpenAICompat(provider, prompt, allowDiscovery = true) {
 let providerCursor = 0;
 
 // Gemini أولاً، ولو فشل ننتقل للمزودين الاحتياطيين بالتناوب
+const providerCooldown = new Map(); // اسم المزود -> وقت انتهاء الإيقاف (ms)
+
 async function askAI(prompt) {
     if (geminiClients.length > 0) {
         try {
             const r = await askGemini(prompt);
             if (r?.text) return r;
         } catch (e) {
-            console.error('Gemini فشل، نجرب المزودين الاحتياطيين:', e.message);
+            if (!e.coolingDown) console.error('Gemini فشل، نجرب المزودين الاحتياطيين:', String(e.message).slice(0, 200));
         }
     }
     const count = PROVIDERS.length;
     for (let i = 0; i < count; i++) {
         const provider = PROVIDERS[(providerCursor + i) % count];
+        if ((providerCooldown.get(provider.name) || 0) > Date.now()) continue;
         try {
             const r = await askOpenAICompat(provider, prompt);
             if (r.text) {
@@ -186,13 +199,26 @@ async function askAI(prompt) {
                 return r;
             }
         } catch (e) {
-            console.error(`${provider.name} فشل، نجرب اللي بعده:`, e.message);
+            console.error(`${provider.name} فشل، نجرب اللي بعده:`, String(e.message).slice(0, 200));
+            const st = e?.status;
+            const ms = st === 429 ? 2 * 60 * 1000
+                : (st === 401 || st === 402 || st === 403 || st === 404) ? 60 * 60 * 1000
+                : 30 * 1000;
+            providerCooldown.set(provider.name, Date.now() + ms);
         }
     }
-    throw new Error('كل المزودين فشلوا');
+    throw new Error(count === 0
+        ? 'Gemini خلصت حصته وما في مزود احتياطي مفعّل (ضيف GROQ_API_KEY مثلاً)'
+        : 'كل المزودين فشلوا أو بفترة انتظار');
 }
 
 // --- 5. أدوات مساعدة ---
+// رسالة تافهة (إيموجي، رابط، ستيكر، حرفين...) ما تستاهل نصرف عليها طلب
+const isTrivial = t => t
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/:\w+:/g, '')
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .length < 3;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ميزانية يومية للردود التلقائية عشان ما تخلص الحصة المجانية
@@ -268,7 +294,7 @@ client.on('messageCreate', async (message) => {
     if (!direct) {
         // رسالة عادية: يرد عليها بس لو الروم من رومات الدردشة، وبنسبة وفاصل وميزانية
         if (!inChatChannel) return;
-        if (text.length < 2 || text.startsWith('/')) return;
+        if (isTrivial(text) || text.startsWith('/')) return;
         if (busyChannels.has(message.channel.id)) return;
         const now = Date.now();
         if (now - (lastAutoReply.get(message.channel.id) || 0) < AUTOREPLY_COOLDOWN_MS) return;
