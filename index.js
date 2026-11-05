@@ -2,25 +2,21 @@ const express = require('express');
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenAI } = require('@google/genai');
 
-// --- 1. خادم HTTP صغير لإبقاء البوت شغال على Render ---
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Drip is online!'));
 app.listen(port, () => console.log(`Server is running on port ${port}`));
 
-// --- 2. الإعدادات (كلها من متغيرات البيئة) ---
 const TOKEN = process.env.DISCORD_TOKEN || '';
 
-// الرومات اللي يسولف فيها البوت مع الكل بدون منشن (IDs مفصولة بفاصلة)
 const CHAT_CHANNEL_IDS = new Set(
     (process.env.CHAT_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
-const AUTOREPLY_CHANCE = parseFloat(process.env.AUTOREPLY_CHANCE || '0.4');          // احتمال الرد على رسالة عادية
-const AUTOREPLY_COOLDOWN_MS = parseInt(process.env.AUTOREPLY_COOLDOWN_SEC || '4', 10) * 1000; // أقل فاصل بين ردين تلقائيين بنفس الروم
-const AUTOREPLY_DAILY_MAX = parseInt(process.env.AUTOREPLY_DAILY_MAX || '250', 10);   // ميزانية يومية للردود التلقائية (المنشن ما يتأثر فيها)
-const HISTORY_LIMIT = parseInt(process.env.HISTORY_LIMIT || '14', 10);                // كم رسالة يقرأ قبل ما يرد 
+const AUTOREPLY_CHANCE = parseFloat(process.env.AUTOREPLY_CHANCE || '0.4');
+const AUTOREPLY_COOLDOWN_MS = parseInt(process.env.AUTOREPLY_COOLDOWN_SEC || '4', 10) * 1000;
+const AUTOREPLY_DAILY_MAX = parseInt(process.env.AUTOREPLY_DAILY_MAX || '250', 10);
+const HISTORY_LIMIT = parseInt(process.env.HISTORY_LIMIT || '14', 10); 
 
-// الرومات اللي البوت يتجاهلها تماماً وما يرد فيها أبداً (IDs مفصولة بفاصلة)
 const IGNORED_CHANNEL_IDS = new Set(
     (process.env.IGNORED_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
@@ -29,7 +25,7 @@ const NAME_TRIGGERS = (process.env.NAME_TRIGGERS || 'دووم,doom').split(',').
 const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NAME_RE = new RegExp(`(^|[^\\p{L}\\p{N}])(${NAME_TRIGGERS.map(escapeRe).join('|')})($|[^\\p{L}\\p{N}])`, 'iu');
 
-// --- 3. شخصية البوت (تقدر تغيرها من متغير BOT_PERSONA بدون ما تلمس الكود) ---
+// --- BOT PERSONA ---
 const BOT_PERSONA = process.env.BOT_PERSONA || `أنت عضو عادي في سيرفر ديسكورد اسمك "دووم"، شاب عربي عمره حوالي 20 سنة، قاعد مع الشلة تسولف وتمزح وترد على الكل كأنك واحد منهم مو بوت.
 
 شخصيتك:
@@ -50,7 +46,6 @@ const BOT_PERSONA = process.env.BOT_PERSONA || `أنت عضو عادي في سي
 
 شكل المدخلات: الرسايل تجيك بصيغة "الاسم: الكلام". انت ترد بالكلام فقط، بدون ما تكتب اسمك بأول الرد.`;
 
-// ردود لما كل المزودين يفشلون (تنرسل بس لو أحد ناداك مباشرة)
 const BUSY_REPLIES = [
     'راسي مسدود شوي، ثواني وأرجع',
     'استنى شوي يا صاحبي، مشغول الحين',
@@ -58,12 +53,9 @@ const BUSY_REPLIES = [
     'مو قادر أرد الحين، ثواني وأرجعلك'
 ];
 
-// --- 4. مزودو الذكاء الاصطناعي ---
-// Gemini (تقدر تضيف أكثر من مفتاح: GEMINI_API_KEY, GEMINI_API_KEY_2 ... _24)
 const GEMINI_KEYS = [process.env.GEMINI_API_KEY, ...[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].map(i => process.env[`GEMINI_API_KEY_${i}`])].filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
-// الحصة اليومية في Gemini لكل (مشروع + موديل)، فكل موديل إضافي = حصة إضافية
 const GEMINI_MODELS = [...new Set([
     GEMINI_MODEL,
     GEMINI_FALLBACK_MODEL,
@@ -73,9 +65,8 @@ const geminiClients = GEMINI_KEYS.map(key => new GoogleGenAI({ apiKey: key }));
 let geminiKeyCursor = 0;
 console.log(`مفاتيح Gemini المفعّلة: ${GEMINI_KEYS.length}`);
 
-// ذاكرة الحصص: أي (مفتاح + موديل) ياخد 429 نوقف استخدامه لحد ما ينتهي وقت الانتظار
-const geminiCooldown = new Map(); // "رقم المفتاح|الموديل" -> وقت انتهاء الإيقاف (ms)
-const GEMINI_MAX_TRIES = parseInt(process.env.GEMINI_MAX_TRIES || '6', 10); // أقصى محاولات فاشلة بالرد الواحد
+const geminiCooldown = new Map();
+const GEMINI_MAX_TRIES = parseInt(process.env.GEMINI_MAX_TRIES || '6', 10); // Max tries for each massage
 
 function geminiCooldownMs(e) {
     const msg = String(e?.message || '');
@@ -85,11 +76,11 @@ function geminiCooldownMs(e) {
         if (m) return Math.ceil(parseFloat(m[1]) * 1000) + 5000;
         return /PerDay/i.test(msg) ? 60 * 60 * 1000 : 60 * 1000;
     }
-    // مفتاح غير صالح أو ممنوع، أو موديل غير موجود: ما يفيد نعيد المحاولة قريب
+    // The key does not work or its broken
     if ((st === 400 || st === 401 || st === 403) && /api key|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) return 6 * 60 * 60 * 1000;
     if (st === 404) return 6 * 60 * 60 * 1000;
     if (st >= 500) return 15 * 1000;
-    return 0; // خطأ بسبب الطلب نفسه، مو بسبب المفتاح
+    return 0;
 }
 
 async function askGemini(prompt) {
@@ -105,7 +96,7 @@ async function askGemini(prompt) {
         for (const model of GEMINI_MODELS) {
             if (tries >= GEMINI_MAX_TRIES) break;
             const cdKey = `${idx}|${model}`;
-            if ((geminiCooldown.get(cdKey) || 0) > Date.now()) continue; // حصته خلصت، تجاهله
+            if ((geminiCooldown.get(cdKey) || 0) > Date.now()) continue; 
             tries++;
             for (let attempt = 0; attempt < 2; attempt++) {
                 try {
@@ -140,12 +131,10 @@ async function askGemini(prompt) {
     throw lastError;
 }
 
-// مزودون احتياطيون مجانيون (كلهم بصيغة OpenAI)، يشتغل اللي مفتاحه موجود
 const PROVIDERS = [
     { name: 'Groq', key: process.env.GROQ_API_KEY, url: 'https://api.groq.com/openai/v1/chat/completions', model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' },
     { name: 'Cerebras', key: process.env.CEREBRAS_API_KEY, url: 'https://api.cerebras.ai/v1/chat/completions', model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b' },
     { name: 'Mistral', key: process.env.MISTRAL_API_KEY, url: 'https://api.mistral.ai/v1/chat/completions', model: process.env.MISTRAL_MODEL || 'mistral-small-latest' },
-    // OpenRouter آخر واحد: موديل مجاني (:free) عشان ما ياخد من رصيدك. تقدر تغيره من OPENROUTER_MODEL
     { name: 'OpenRouter', key: process.env.OPENROUTER_API_KEY, url: 'https://openrouter.ai/api/v1/chat/completions', model: process.env.OPENROUTER_MODEL || 'qwen/qwen-2.5-72b-instruct:free' },
 ].filter(p => p.key);
 console.log('المزودون الاحتياطيون المفعّلون:', PROVIDERS.map(p => p.name).join(', ') || 'لا يوجد (Gemini فقط)');
@@ -176,8 +165,8 @@ async function askOpenAICompat(provider, prompt) {
 
 let providerCursor = 0;
 
-// Gemini أولاً، ولو فشل ننتقل للمزودين الاحتياطيين بالتناوب
-const providerCooldown = new Map(); // اسم المزود -> وقت انتهاء الإيقاف (ms)
+// Gemini First. then the others
+const providerCooldown = new Map();
 
 async function askAI(prompt) {
     if (geminiClients.length > 0) {
@@ -212,8 +201,6 @@ async function askAI(prompt) {
         : 'كل المزودين فشلوا أو بفترة انتظار');
 }
 
-// --- 5. أدوات مساعدة ---
-// رسالة تافهة (إيموجي، رابط، ستيكر، حرفين...) ما تستاهل نصرف عليها طلب
 const isTrivial = t => t
     .replace(/https?:\/\/\S+/g, '')
     .replace(/:\w+:/g, '')
@@ -221,7 +208,6 @@ const isTrivial = t => t
     .length < 3;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// ميزانية يومية للردود التلقائية عشان ما تخلص الحصة المجانية
 let budgetDay = '';
 let budgetUsed = 0;
 function takeBudget() {
@@ -232,7 +218,6 @@ function takeBudget() {
     return true;
 }
 
-// ينظف رد النموذج: يشيل وسوم التفكير وأي "Drip:" بأول الرد وعلامات الاقتباس
 function cleanReply(text) {
     return (text || '')
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
@@ -243,7 +228,7 @@ function cleanReply(text) {
 
 const nameOf = m => m.member?.displayName || m.author.globalName || m.author.username;
 
-// يقرأ آخر رسائل الروم عشان يفهم الحوار ومين يحكي مع مين
+// Reads the chat in the room
 let client; // يتعرف تحت
 async function buildTranscript(message) {
     const recent = await message.channel.messages
@@ -257,7 +242,7 @@ async function buildTranscript(message) {
         .join('\n');
 }
 
-// --- 6. البوت ---
+// --- 6TH BOT ---
 client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -266,9 +251,9 @@ client = new Client({
     ]
 });
 
-client.once('clientReady', () => {
+client.once('ready', () => {
     console.log(`✅ تم تشغيل البوت بنجاح باسم: ${client.user.tag}`);
-    console.log(`رومات الدردشة المفتوحة: ${CHAT_CHANNEL_IDS.size ? [...CHAT_CHANNEL_IDS].join(', ') : 'لا يوجد (يرد فقط على المنشن/الرد/الاسم)'}`);
+    console.log(`رومات الدردشة المفتوحة: ${CHAT_CHANNEL_IDS.size ? [...CHAT_CHANNEL_IDS].join(', ') : 'لا يوجد'}`);
 });
 
 const busyChannels = new Set();
@@ -281,7 +266,7 @@ client.on('messageCreate', async (message) => {
     const text = message.cleanContent.trim();
     if (!text) return;
 
-    // هل أحد يكلم البوت مباشرة؟ (منشن / رد على رسالته / ذكر اسمه)
+    // To see if someone called the bot
     const mentioned = message.mentions.has(client.user.id, { ignoreEveryone: true, ignoreRoles: true });
     let repliedToBot = false;
     if (message.reference?.messageId && !mentioned) {
@@ -292,7 +277,6 @@ client.on('messageCreate', async (message) => {
     const inChatChannel = CHAT_CHANNEL_IDS.has(message.channel.id);
 
     if (!direct) {
-        // رسالة عادية: يرد عليها بس لو الروم من رومات الدردشة، وبنسبة وفاصل وميزانية
         if (!inChatChannel) return;
         if (isTrivial(text) || text.startsWith('/')) return;
         if (busyChannels.has(message.channel.id)) return;
@@ -322,10 +306,10 @@ client.on('messageCreate', async (message) => {
 
         if (!reply || (!direct && /^SKIP\b/i.test(reply))) return;
 
-        await sleep(700 + Math.random() * 1300); // تأخير بسيط يحسسك إنه يكتب
+        await sleep(700 + Math.random() * 1300); // Small delay to make it seems that its writing
         await message.reply({
             content: reply.slice(0, 1990),
-            // parse: [] يمنع أي منشن @everyone أو @role يطلع من النموذج
+            // parse: [] To make sure it does not ping anyone
             allowedMentions: { parse: [], repliedUser: direct }
         });
     } catch (error) {
