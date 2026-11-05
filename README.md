@@ -44,6 +44,20 @@ Create a Discord application and configure its token and message-content
 intent before starting the bot. API keys and server-specific channel IDs must
 stay in `.env`; never commit them.
 
+## Project structure
+
+```text
+.
+├── index.js       # Discord client, routing, providers, and health endpoint
+├── package.json   # Runtime metadata and npm scripts
+├── .env.example   # Safe configuration template
+└── .gitignore     # Secrets, dependencies, logs, and generated files
+```
+
+The current single-entry layout is intentional: it keeps deployment simple
+while the bot is still evolving. Provider and Discord modules can be split out
+later without changing the public configuration contract.
+
 ## Configuration
 
 The main settings are read from environment variables, including:
@@ -60,8 +74,11 @@ The main settings are read from environment variables, including:
 - `AUTOREPLY_CHANCE`
 - `AUTOREPLY_COOLDOWN_SEC`
 - `AUTOREPLY_DAILY_MAX`
+- `PORT`
 
-See `.env.example` for the expected variable names.
+See `.env.example` for defaults and the complete list of supported variables.
+Leave optional provider keys empty to disable those fallbacks. Multiple
+`GEMINI_API_KEY_N` values can be supplied for key rotation.
 
 ## Architecture
 
@@ -76,6 +93,6 @@ or hard-coding server configuration in the source.
 
 ## Project status
 
-This is a personal, actively evolving project. The code is currently centered
-in `index.js`; future cleanup may split provider adapters, configuration, and
-Discord event handling into separate modules.
+This is a personal, actively evolving project. Contributions and suggestions
+are welcome, especially around provider adapters, configuration, and Discord
+event handling.
