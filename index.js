@@ -260,6 +260,8 @@ const busyChannels = new Set();
 const lastAutoReply = new Map();
 
 client.on('messageCreate', async (message) => {
+    console.log(`رسالة من ${message.author.username} في روم ${message.channel.name}: ${message.content}`);
+
     if (message.author.bot || !message.guild) return;
 
     if (IGNORED_CHANNEL_IDS.has(message.channel.id)) return;
